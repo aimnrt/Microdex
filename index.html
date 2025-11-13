@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Quiz-Generator (Funktionell)</title>
+    <title>AI Quiz-Generator (Vercel Ready)</title>
     <style>
         /* CSS: Strikt Mörkt Tema */
         :root {
@@ -11,7 +11,7 @@
             --color-surface: #1e1e1e;
             --color-text-light: #e0e0e0;
             --color-text-dark: #333333;
-            --color-accent: #03dac6; /* Ljus Turkos/Cyan */
+            --color-accent: #03dac6;
             --color-error: #cf6679;
             --color-success: #6cff8a;
             --font-stack: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -74,13 +74,17 @@
             display: block;
             margin-top: 10px;
             font-style: italic;
-            color: var(--color-error);
+            color: var(--color-text-light);
+            min-height: 20px; /* För att hålla layouten */
         }
 
-        /* Quiz och Resultat CSS (Se tidigare svar för komplett stil) */
+        /* Quiz och Resultat CSS */
         #quiz-section, #result-section {
             display: none;
         }
+        
+        #question-counter { text-align: right; margin-bottom: 15px; font-size: 1.1em; font-weight: bold; color: var(--color-accent); }
+        .question-text { font-size: 1.5em; margin-bottom: 25px; padding-bottom: 15px; border-bottom: 1px solid #333; }
 
         .option {
             background-color: #2a2a2a;
@@ -90,10 +94,13 @@
             border-radius: 4px;
             cursor: pointer;
             transition: background-color 0.2s;
+            border: 2px solid #2a2a2a;
         }
 
-        .option.correct { background-color: var(--color-success); color: var(--color-text-dark); }
-        .option.incorrect { background-color: var(--color-error); color: var(--color-text-dark); }
+        .option.correct { background-color: var(--color-success); color: var(--color-text-dark); border-color: var(--color-success); }
+        .option.incorrect { background-color: var(--color-error); color: var(--color-text-dark); border-color: var(--color-error); }
+        .option.correct::before { content: "✓ "; }
+        .option.incorrect.selected::before { content: "✗ "; }
 
         .spinner {
             border: 4px solid rgba(255, 255, 255, 0.3);
@@ -115,18 +122,31 @@
 <body>
 
 <div class="container">
-    <h1>AI Quiz-Generator (Full Stack)</h1>
+    <h1>AI Quiz-Generator (Vercel Ready)</h1>
 
     <section id="pdf-upload-section">
-        <h2>Ladda upp PDF för AI-generering</h2>
+        <h2>Ladda upp dokument för AI-generering</h2>
         <input type="file" id="pdf-file" accept=".pdf, .docx, .txt">
         <label for="pdf-file" class="upload-label">Välj Dokumentfil</label>
         <span id="file-name">Välj en fil för att starta.</span>
         <div id="loading-spinner" class="spinner"></div>
     </section>
 
-    <section id="quiz-section">...</section>
-    <section id="result-section">...</section>
+    <section id="quiz-section">
+        <div id="question-counter"></div>
+        <div id="question-container">
+            <h3 class="question-text" id="current-question">Laddar frågor...</h3>
+            <div id="options-container">
+                </div>
+        </div>
+    </section>
+
+    <section id="result-section">
+        <h2>Quiz Avslutat!</h2>
+        <div id="score-display" style="font-size: 3em; color: var(--color-accent); margin-bottom: 10px;"></div>
+        <p id="result-message" style="font-size: 1.5em; margin-bottom: 30px;"></p>
+        <button onclick="location.reload()" style="background-color: var(--color-accent); color: var(--color-text-dark); padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 1.2em;">Starta Nytt Quiz</button>
+    </section>
 </div>
 
 <script>
@@ -135,34 +155,39 @@
     const fileNameSpan = document.getElementById('file-name');
     const uploadSection = document.getElementById('pdf-upload-section');
     const quizSection = document.getElementById('quiz-section');
+    const resultSection = document.getElementById('result-section');
     const loadingSpinner = document.getElementById('loading-spinner');
-    // ... övriga element ...
+    const questionCounter = document.getElementById('question-counter');
+    const currentQuestionEl = document.getElementById('current-question');
+    const optionsContainer = document.getElementById('options-container');
+    const scoreDisplay = document.getElementById('score-display');
+    const resultMessage = document.getElementById('result-message');
+
 
     let currentQuestionIndex = 0;
     let score = 0;
     let quizData = [];
     let isLocked = false; 
     
-    // Anropa denna funktion när filen har laddats upp (ändrat)
+    // --- Steg 1: Hantera filval och anropa Backend (Vercel Serverless) ---
     pdfFile.addEventListener('change', async (event) => {
         const fileInput = event.target;
         if (fileInput.files.length === 0) return;
 
         const file = fileInput.files[0];
         fileNameSpan.style.color = 'var(--color-text-light)';
-        fileNameSpan.textContent = `Laddar upp och analyserar: ${file.name}...`;
+        fileNameSpan.textContent = `Laddar upp och analyserar: ${file.name}... Detta kan ta upp till 20 sekunder.`;
         loadingSpinner.style.display = 'block';
-        pdfFile.disabled = true;
+        pdfFile.disabled = true; // Lås knappen
 
         // Förbered filen för sändning
         const formData = new FormData();
-        // Viktigt: Fältnamnet 'pdf_file' måste matcha vad server.py förväntar sig!
-        formData.append('pdf_file', file); 
+        // Fältnamnet 'doc_file' måste matcha vad backend (quiz.py) förväntar sig
+        formData.append('doc_file', file); 
         
-        // --- API-ANROP TILL DIN BACKEND (t.ex. körs på en Render- eller Railway-server) ---
         try {
-            // OBS! Ändra 'DIN-BACKEND-URL.com' till din verkliga serveradress!
-            const response = await fetch('/api/generate-quiz', { 
+            // Anrop till Serverless Function i /api/quiz
+            const response = await fetch('/api/quiz', { 
                 method: 'POST',
                 body: formData
             });
@@ -174,6 +199,10 @@
 
             // Ta emot det AI-genererade quizet (JSON)
             quizData = await response.json();
+            
+            if (!Array.isArray(quizData) || quizData.length === 0) {
+                 throw new Error("AI returnerade inget giltigt quiz. Försök med en längre text.");
+            }
 
             // Gå vidare till quizet
             loadingSpinner.style.display = 'none';
@@ -184,14 +213,78 @@
         } catch (error) {
             // Visa felmeddelande
             fileNameSpan.style.color = 'var(--color-error)';
-            fileNameSpan.textContent = `FEL: ${error.message}. Kontrollera att din backend körs.`;
+            fileNameSpan.textContent = `FEL: ${error.message}. Kontrollera Vercel loggar för mer info.`;
             loadingSpinner.style.display = 'none';
             pdfFile.disabled = false;
         }
     });
 
-    // --- Resterande logik för loadQuestion, handleAnswer, showResults (Se tidigare svar) ---
-    // ... Lägg till hela loadQuestion, handleAnswer, showResults här ...
+    // --- Steg 2: Visa en fråga ---
+    function loadQuestion() {
+        if (currentQuestionIndex >= quizData.length) {
+            showResults();
+            return;
+        }
+
+        isLocked = false;
+        const q = quizData[currentQuestionIndex];
+        
+        questionCounter.textContent = `Fråga ${currentQuestionIndex + 1} av ${quizData.length}`;
+        currentQuestionEl.textContent = q.question;
+        optionsContainer.innerHTML = ''; 
+
+        q.options.forEach((optionText, index) => {
+            const optionEl = document.createElement('div');
+            optionEl.classList.add('option');
+            optionEl.textContent = optionText;
+            optionEl.dataset.index = index;
+            optionEl.addEventListener('click', () => handleAnswer(optionEl, index, q.correctIndex));
+            optionsContainer.appendChild(optionEl);
+        });
+    }
+
+    // --- Steg 3: Hantera användarens svar ---
+    function handleAnswer(selectedEl, selectedIndex, correctIndex) {
+        if (isLocked) return;
+        isLocked = true; 
+
+        selectedEl.classList.add('selected');
+
+        if (selectedIndex === correctIndex) {
+            selectedEl.classList.add('correct');
+            score++;
+        } else {
+            selectedEl.classList.add('incorrect');
+            const correctEl = optionsContainer.querySelector(`[data-index="${correctIndex}"]`);
+            if (correctEl) {
+                correctEl.classList.add('correct');
+            }
+        }
+
+        setTimeout(() => {
+            currentQuestionIndex++;
+            loadQuestion();
+        }, 1500); 
+    }
+
+    // --- Steg 4: Visa resultat ---
+    function showResults() {
+        quizSection.style.display = 'none';
+        resultSection.style.display = 'block';
+
+        scoreDisplay.textContent = `${score} / ${quizData.length}`;
+
+        let message = "Bra jobbat! Du har koll på läget.";
+        const percentage = (score / quizData.length) * 100;
+
+        if (percentage < 50) {
+            message = "Du kan behöva läsa igenom materialet en gång till.";
+        } else if (percentage < 80) {
+            message = "Helt okej resultat! Nästan där.";
+        }
+
+        resultMessage.textContent = message;
+    }
 </script>
 </body>
 </html>

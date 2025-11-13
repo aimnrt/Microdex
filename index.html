@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Quiz-Generator (Funktionell)</title>
+    <style>
+        /* CSS: Strikt Mörkt Tema */
+        :root {
+            --color-dark-bg: #121212;
+            --color-surface: #1e1e1e;
+            --color-text-light: #e0e0e0;
+            --color-text-dark: #333333;
+            --color-accent: #03dac6; /* Ljus Turkos/Cyan */
+            --color-error: #cf6679;
+            --color-success: #6cff8a;
+            --font-stack: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            font-family: var(--font-stack);
+            background-color: var(--color-dark-bg);
+            color: var(--color-text-light);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 700px;
+            padding: 20px;
+            background-color: var(--color-surface);
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+        }
+
+        h1 {
+            color: var(--color-accent);
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        #pdf-upload-section {
+            text-align: center;
+            padding: 20px 0;
+            border-bottom: 1px solid #333;
+            margin-bottom: 30px;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .upload-label {
+            display: inline-block;
+            background-color: var(--color-accent);
+            color: var(--color-text-dark);
+            padding: 12px 25px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .upload-label:hover {
+            background-color: #03b6a9;
+        }
+
+        #file-name {
+            display: block;
+            margin-top: 10px;
+            font-style: italic;
+            color: var(--color-error);
+        }
+
+        /* Quiz och Resultat CSS (Se tidigare svar för komplett stil) */
+        #quiz-section, #result-section {
+            display: none;
+        }
+
+        .option {
+            background-color: #2a2a2a;
+            color: var(--color-text-light);
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .option.correct { background-color: var(--color-success); color: var(--color-text-dark); }
+        .option.incorrect { background-color: var(--color-error); color: var(--color-text-dark); }
+
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid var(--color-accent);
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            display: none;
+            margin: 20px auto 0;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>AI Quiz-Generator (Full Stack)</h1>
+
+    <section id="pdf-upload-section">
+        <h2>Ladda upp PDF för AI-generering</h2>
+        <input type="file" id="pdf-file" accept=".pdf, .docx, .txt">
+        <label for="pdf-file" class="upload-label">Välj Dokumentfil</label>
+        <span id="file-name">Välj en fil för att starta.</span>
+        <div id="loading-spinner" class="spinner"></div>
+    </section>
+
+    <section id="quiz-section">...</section>
+    <section id="result-section">...</section>
+</div>
+
+<script>
+    // --- DOM-element och Tillstånd ---
+    const pdfFile = document.getElementById('pdf-file');
+    const fileNameSpan = document.getElementById('file-name');
+    const uploadSection = document.getElementById('pdf-upload-section');
+    const quizSection = document.getElementById('quiz-section');
+    const loadingSpinner = document.getElementById('loading-spinner');
+    // ... övriga element ...
+
+    let currentQuestionIndex = 0;
+    let score = 0;
+    let quizData = [];
+    let isLocked = false; 
+    
+    // Anropa denna funktion när filen har laddats upp (ändrat)
+    pdfFile.addEventListener('change', async (event) => {
+        const fileInput = event.target;
+        if (fileInput.files.length === 0) return;
+
+        const file = fileInput.files[0];
+        fileNameSpan.style.color = 'var(--color-text-light)';
+        fileNameSpan.textContent = `Laddar upp och analyserar: ${file.name}...`;
+        loadingSpinner.style.display = 'block';
+        pdfFile.disabled = true;
+
+        // Förbered filen för sändning
+        const formData = new FormData();
+        // Viktigt: Fältnamnet 'pdf_file' måste matcha vad server.py förväntar sig!
+        formData.append('pdf_file', file); 
+        
+        // --- API-ANROP TILL DIN BACKEND (t.ex. körs på en Render- eller Railway-server) ---
+        try {
+            // OBS! Ändra 'DIN-BACKEND-URL.com' till din verkliga serveradress!
+            const response = await fetch('/api/generate-quiz', { 
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || `Serverfel: ${response.statusText}`);
+            }
+
+            // Ta emot det AI-genererade quizet (JSON)
+            quizData = await response.json();
+
+            // Gå vidare till quizet
+            loadingSpinner.style.display = 'none';
+            uploadSection.style.display = 'none';
+            quizSection.style.display = 'block';
+            loadQuestion();
+
+        } catch (error) {
+            // Visa felmeddelande
+            fileNameSpan.style.color = 'var(--color-error)';
+            fileNameSpan.textContent = `FEL: ${error.message}. Kontrollera att din backend körs.`;
+            loadingSpinner.style.display = 'none';
+            pdfFile.disabled = false;
+        }
+    });
+
+    // --- Resterande logik för loadQuestion, handleAnswer, showResults (Se tidigare svar) ---
+    // ... Lägg till hela loadQuestion, handleAnswer, showResults här ...
+</script>
+</body>
+</html>
